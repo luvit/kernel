@@ -12,7 +12,14 @@ local Math = require('math')
 -- Override these in your app
 local Kernel = {
   cache_lifetime = 1000,
-  helpers = {},
+  helpers = {
+    S = function(x)
+      if type(x) == 'function' then return '{{FUNCTION}}' end
+      if type(x) == 'table' then return '{{TABLE}}' end
+      if x == nil then return '{{NIL}}' end
+      return x
+    end
+  },
 };
 
 
@@ -189,7 +196,7 @@ end
         if type(part) == "string" then
           Table.insert(parts, string_escape(part))
         else
-          Table.insert(parts, "(" .. part.name .. " or " .. string_escape("{{" .. part.name .. "}}") .. ")")
+          Table.insert(parts, "S(" .. part.name .. ")")
         end
       end
       Table.insert(generated, "parts[" .. i .. "]=" .. Table.concat(parts, '..'))
