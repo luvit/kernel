@@ -21,9 +21,12 @@ local function compile(filename, callback)
     if err then return callback(err) end
     local template;
     local tokens = Kernel.tokenizer(source)
+    p("tokens", tokens)
     tokens = Kernel.parser(tokens, source, filename)
+    p("parsed", tokens)
     local code = Kernel.generator(tokens)
-    p("code",code)
+    p("code")
+    print(code)
     -- try {
     --   template = Function("return " + generator(parser(tokenizer(source), source, filename)))();
     -- } catch (err) {
@@ -78,112 +81,137 @@ function Kernel.compile(filename, callback)
 
 end
 
---[[
-function generator(tokens) {
-  var length = tokens.length;
-  var left = length;
+-- Helper to show nicly formattet error messages with full file position.
+local function getPosition(source, offset, filename)
+  local line = 0
+  local position = 0
+  local last = 0
+  
+  function match()
+    position = source:find("\n", position + 1)
+    return position
+  end
+  while match() do
+    last = position
+  end
+  return "(" .. filename .. ":" .. line .. ":" .. (offset - last) .. ")"
+end
 
-  // Shortcut for static sections
-  if (tokens.length === 1 && Array.isArray(tokens[0]) && tokens[0].length === 1 && typeof tokens[0][0] === 'string') {
-    return "function(L, c){c(null," + JSON.stringify(tokens[0][0]) + ")}";
-  }
+local function stringify(source, token)
+  return source:sub(token.start, token.stop)
+end
 
-  for (var i = 0; i < length; i++) {
-    var token = tokens[i];
-    if (Array.isArray(token)) left--;
-  }
-  var programHead = [
-  "function(L,c){",
-    "var $p=new Array(" + length + ")" + (left ? ",i=" + (length - 1) : ""),
-    "try{",
-    "(function(){with(this){"];
-  var programTail = [
-    "}}).call(L);",
-    "}catch(e){return c(e)}",
-    "var d;$c()",
-    "function $e(e){if(d)return;d=!d;c(e)}",
-    "function $c(){if(d)return;while($p.hasOwnProperty(i)){i--}if(i<0){d=!d;c(null,$p.join(''))}}",
-  "}"];
-  var simpleTail = [
-    "}}).call(L);",
-    "}catch(e){return c(e)}",
-    "c(null,$p.join(''))",
-  "}"];
-  var generated = tokens.map(function(token, i) {
-    if (Array.isArray(token)) {
-      return "$p[" + i + "]=" + token.map(function (token) {
-        if (typeof token === "string") { return JSON.stringify(token); }
-        return "(" + token.name + ")";
-      }).join("+");
-    }
-    if (token.contents || token.hasOwnProperty('args')) {
-      var args = token.args ? (token.args + ",") : "";
-      if (token.contents) { args += generator(token.contents) + ","; }
-      return token.name + "(" + args + "function(e,r){if(e)return $e(e);$p[" + i + "]=r;$c()})";
-    }
-    return "$p[" + i + "]=" + token.name;
-  });
-  return programHead.concat(generated).concat(left ? programTail : simpleTail).join("\n");
-}
+-- TODO: don't break on strings containing [[ and ]]
+local function string_escape(string)
+  return "[[" .. string .. "]]"
+end
 
-// Helper to show nicly formatter error messages with full file position.
-function getPosition(source, offset, filename) {
-  var line = 0;
-  var position = 0;
-  var last = 0;
-  for (position = 0; position >= 0 && position < offset; position = source.indexOf("\n", position + 1)) {
-    line++;
-    last = position;
-  }
-  return "(" + filename + ":" + line + ":" + (offset - last) + ")";
-}
+function Kernel.generator(tokens)
+  local length = #tokens
+  local left = length
 
-function stringify(source, token) {
-  return source.substr(token.start, token.end-token.start);
-}
+  -- Shortcut for static sections
+  if #tokens == 1 and tokens[1].simple and #tokens[1] == 1 and type(tokens[1][1]) == "string" then
+    return "function(L, c) c(nil," .. string_escape(tokens[1][1]) .. ") end"
+  end
+  
+  -- Reduce counters for simple tokens
+  for i, token in ipairs(tokens) do
+    if token.simple then
+      left = left - 1
+    end
+  end
+  
+  local program_head = 
+    "function(L,c){" ..
+      "var $p=new Array(" .. length .. ")" .. (left > 0 and ",i=" .. (length - 1) or "") ..
+      "try{" ..
+      "(function(){with(this){"
+  local program_tail = 
+      "}}).call(L);" ..
+      "}catch(e){return c(e)}" ..
+      "var d;$c()" ..
+      "function $e(e){if(d)return;d=!d;c(e)}" ..
+      "function $c(){if(d)return;while($p.hasOwnProperty(i)){i--}if(i<0){d=!d;c(null,$p.join(''))}}" ..
+    "}"
+  local simple_tail =
+    "}}).call(L);" ..
+    "}catch(e){return c(e)}" ..
+    "c(null,$p.join(''))"
+  local generated = {}
+  for i, token in ipairs(tokens) do
+    if token.simple then
+      local parts = {}
+      for j, part in ipairs(token) do
+        if type(part) == "string" then
+          Table.insert(parts, string_escape(part))
+        else
+          Table.insert(parts, "(" .. part.name .. ")")
+        end
+      end
+      Table.insert(generated, "$p[" .. i .. "]=" .. Table.concat(parts, '..'))
+    elseif token.contents or token.args then
+      local args = (token.args and #token.args) and (token.args .. ",") or ""
+      if token.contents then args = args .. Kernel.generator(token.contents) .. "," end
+      Table.insert(generated, token.name .. "(" .. args .. "function(e,r) if e then return $e(e) end $p[" .. i .. "]=r;$c()end)")
+    else
+      error("This shouldn't happen!")
+    end
+  end
+  return program_head .. Table.concat(generated, "\n") .. (left > 0 and program_tail or simple_tail);
+end
 
-function parser(tokens, source, filename) {
-  var parts = [];
-  var openStack = [];
-  var i, l;
-  var simple;
-  for (i = 0, l = tokens.length; i < l; i++) {
-    var token = tokens[i];
-    if (typeof token === "string") {
-      if (simple) simple.push(token)
-      else parts.push(simple = [token]);
-    } else if (token.open) {
-      simple = false;
-      token.parent = parts;
-      parts.push(token);
-      parts = token.contents = [];
-      openStack.push(token);
-    } else if (token.close) {
-      simple = false;
-      var top = openStack.pop();
-      if (top.name !== token.name) {
-        throw new Error("Expected closer for " + stringify(source, top) + " but found " + stringify(source, token) + " " + getPosition(source, token.start, filename));
-      }
-      parts = top.parent;
-      delete top.parent;
-      delete top.open;
-    } else {
-      if (token.hasOwnProperty('args')) {
-        simple = false;
-        parts.push(token);
-      } else {
-        if (simple) simple.push(token)
-        else parts.push(simple = [token]);
-      }
-    }
-  }
-  if (openStack.length) {
-    var top = openStack.pop();
-    throw new Error("Expected closer for " + stringify(source, top) + " but reached end " + getPosition(source, top.end, filename));
-  }
-  return parts;
-}
-]]
+function Kernel.parser(tokens, source, filename)
+  local parts = {}
+  local open_stack = {}
+  local i
+  local l
+  local simple
+  for i, token in ipairs(tokens) do
+    if type(token) == "string" then
+      if simple then
+        Table.insert(simple, token)
+      else
+        simple = {simple=true,token}
+        Table.insert(parts, simple)
+      end
+    elseif token.open then
+      simple = nil
+      token.parent = parts
+      Table.insert(parts, token)
+      parts = {}
+      token.contents = parts
+      Table.insert(open_stack, token)
+    elseif token.close then
+      simple = nil
+      local top = Table.remove(open_stack)
+      if not (top.name == token.name) then
+        error("Expected closer for " .. stringify(source, top) .. " but found " .. stringify(source, token) .. " " .. getPosition(source, token.start, filename))
+      end
+      parts = top.parent
+      top.parent = nil
+      top.open = nil
+    else
+      if token.args then
+        simple = nil
+        Table.insert(parts, token)
+      else
+        if simple then
+          Table.insert(simple, token)
+        else
+          simple = {simple=true,token}
+          Table.insert(parts, simple)
+        end
+      end
+    end
+  end
+  if #open_stack > 0 then
+    local top = Table.remove(open_stack)
+    error("Expected closer for " .. stringify(source, top) .. " but reached end " .. getPosition(source, top.stop, filename))
+  end
+  return parts
+end
+
 
 -- Pattern to match all template tags. Allows balanced parens within the arguments
 -- Also allows basic expressions in double {{tags}} with balanced {} within
@@ -196,7 +224,7 @@ local patterns = {
 -- This lexes a source string into discrete tokens for easy parsing.
 function Kernel.tokenizer(source)
   local parts = {}
-  local position = 1
+  local position = 0
   local match
 
   function findMatch()
@@ -218,8 +246,8 @@ function Kernel.tokenizer(source)
   while findMatch() do
     local start = match[1]
 
-    if start > position then -- Raw text was before this tag
-      parts[#parts + 1] = source:sub(position, start - 1)
+    if start - 1 > position then -- Raw text was before this tag
+      parts[#parts + 1] = source:sub(position + 1, start - 1)
     end
 
     -- Move search to after tag match
@@ -249,27 +277,7 @@ function Kernel.tokenizer(source)
   if #source > position then -- There is raw text left over
     parts[#parts + 1] = source:sub(position + 1)
   end
-  
---[[            
-    if (match[1] === "{") { // Raw expression
-      obj.name = match.substr(2, match.length - 4);
-    } else if (match[1] === "#") { // Open tag
-    } else if (match[1] === "/") { // Close tag
-      obj.close = true;
-      obj.name = match.substr(2, match.length - 3);
-    } else { // Normal tag
-      if (match[match.length - 2] === ")") { // With arguments
-        var i = match.indexOf("(");
-        obj.name = match.substr(1, i - 1);
-        obj.args = match.substr(i + 1, match.length - i - 3);
-      } else { // Without arguments
-        obj.name = match.substr(1, match.length - 2);
-      }
-    }
-    parts.push(obj);
-    tagRegex.lastIndex = position;
-  }
-  ]]
+
   return parts
 end
 
