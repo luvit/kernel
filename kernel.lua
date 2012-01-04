@@ -20,14 +20,23 @@ local function compile(filename, callback)
     if err then return callback(err) end
     local template;
     local tokens = Kernel.tokenizer(source)
-    p("tokens", tokens)
+    -- p("tokens", tokens)
     tokens = Kernel.parser(tokens, source, filename)
-    p("parsed", tokens)
+    -- p("parsed", tokens)
     local code = "local Table = require('table')\nreturn " .. Kernel.generator(tokens)
-    p("code")
-    print(code)
-    local chunk = loadstring(code, filename)
-    callback(null, chunk())
+    -- p("code")
+    -- print(code)
+    local chunk, err = loadstring(code, filename .. ".lua")
+    if err then
+      return callback(err)
+    end
+    local real = chunk()
+    callback(null, function (locals, callback)
+      local success, err = pcall(function ()
+        real(locals, callback)
+      end)
+      if not success then callback(err) end
+    end)
   end)
 end
 
@@ -96,9 +105,23 @@ local function stringify(source, token)
   return source:sub(token.start, token.stop)
 end
 
--- TODO: don't break on strings containing [[ and ]]
+-- Escape any lua string as a long string
 local function string_escape(string)
-  return "[[" .. string .. "]]"
+  local pos = 0
+  local found = {}
+  local max = 0
+  function match()
+    local m = {string:find("([%[%]])(=*)%1", pos)}
+    if m[4] then
+      found[#m[4]] = true
+      while found[max] do max = max + 1 end
+      pos = m[2]
+      return true
+    end
+  end
+  while match() do end
+  local r = ("="):rep(max)
+  return "[" .. r .. "[" .. string .. "]" .. r .. "]"
 end
 
 function Kernel.generator(tokens)
@@ -117,34 +140,37 @@ function Kernel.generator(tokens)
     end
   end
   
-  local program_head = 
-    "function(locals, callback)\n" ..
-    "  local parts = {}\n" ..
-    "  local left = " .. left .. "\n" ..
-    "  local done\n" ..
-    "  local function error(err)\n" ..
-    "    if done then return end\n" ..
-    "    done = true\n" ..
-    "    callback(err)\n" ..
-    "  end\n" ..
-    "  local function check()\n" ..
-    "    if done then return end\n" ..
-    "    left = left - 1\n" ..
-    "    if left == 0 then\n" ..
-    "      done = true\n" ..
-    "      callback(nil, Table.concat(parts))\n" ..
-    "    end\n" ..
-    "  end\n" ..
-    "  local function fn()\n    "
-  local program_tail = 
-    "  end\n"..
-    "  setfenv(fn, locals)\n"..
-    "  fn()\n" ..
-    "  if left == 0 then\n"..
-    "    done = true\n" ..
-    "    callback(nil, Table.concat(parts))\n" ..
-    "  end\n" ..
-    "end\n"
+  local program_head = [[
+function(locals, callback)
+  local parts = {}
+  local left = ]] .. (left + 1) .. "\n" .. [[
+  local done]] .. "\n" .. (left > 0 and [[
+  local function error(err)
+    if done then return end
+    done = true
+    callback(err)
+  end
+  local function check()
+    if done then return end
+    left = left - 1
+    if left == 0 then
+      done = true
+      callback(nil, Table.concat(parts))
+    end
+  end]] or "") .. [[
+  local function fn()
+]]
+  local program_tail = [[
+  end
+  setfenv(fn, locals)
+  fn()
+  left = left - 1
+  if left == 0 and not done then
+    done = true
+    callback(nil, Table.concat(parts))
+  end
+end
+]]
   local generated = {}
   for i, token in ipairs(tokens) do
     if token.simple then
@@ -158,14 +184,14 @@ function Kernel.generator(tokens)
       end
       Table.insert(generated, "parts[" .. i .. "]=" .. Table.concat(parts, '..'))
     elseif token.contents or token.args then
-      local args = (token.args and #token.args) and (token.args .. ",") or ""
+      local args = (token.args and #token.args > 0) and (token.args .. ",") or ""
       if token.contents then args = args .. Kernel.generator(token.contents) .. "," end
-      Table.insert(generated, token.name .. "(" .. args .. "function(err, result) if err then return error(err) end parts[" .. i .. "]=result;check() end)")
+      Table.insert(generated, token.name .. "(" .. args .. "function(err, result)\n  if err then return error(err) end\n  parts[" .. i .. "]=result\n  check()\nend)")
     else
       error("This shouldn't happen!")
     end
   end
-  return program_head .. Table.concat(generated, "\n") .. program_tail;
+  return program_head .. Table.concat(generated, "\n") .. "\n" .. program_tail;
 end
 
 function Kernel.parser(tokens, source, filename)
@@ -192,7 +218,9 @@ function Kernel.parser(tokens, source, filename)
     elseif token.close then
       simple = nil
       local top = Table.remove(open_stack)
-      if not (top.name == token.name) then
+      if not top then
+        error("Unexpected closer " .. stringify(source, token) .. " " .. getPosition(source, token.start, filename))
+      elseif not top.name == token.name then
         error("Expected closer for " .. stringify(source, top) .. " but found " .. stringify(source, token) .. " " .. getPosition(source, token.start, filename))
       end
       parts = top.parent
