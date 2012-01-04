@@ -6,7 +6,6 @@
 
 local FS = require('fs')
 local Timer = require('timer')
-local String = require('string')
 local Table = require('table')
 local Math = require('math')
 
@@ -24,15 +23,11 @@ local function compile(filename, callback)
     p("tokens", tokens)
     tokens = Kernel.parser(tokens, source, filename)
     p("parsed", tokens)
-    local code = Kernel.generator(tokens)
+    local code = "local Table = require('table')\nreturn " .. Kernel.generator(tokens)
     p("code")
     print(code)
-    -- try {
-    --   template = Function("return " + generator(parser(tokenizer(source), source, filename)))();
-    -- } catch (err) {
-    --   callback(err); return;
-    -- }
-    -- callback(null, template);
+    local chunk = loadstring(code, filename)
+    callback(null, chunk())
   end)
 end
 
@@ -123,21 +118,33 @@ function Kernel.generator(tokens)
   end
   
   local program_head = 
-    "function(L,c){" ..
-      "var $p=new Array(" .. length .. ")" .. (left > 0 and ",i=" .. (length - 1) or "") ..
-      "try{" ..
-      "(function(){with(this){"
+    "function(locals, callback)\n" ..
+    "  local parts = {}\n" ..
+    "  local left = " .. left .. "\n" ..
+    "  local done\n" ..
+    "  local function error(err)\n" ..
+    "    if done then return end\n" ..
+    "    done = true\n" ..
+    "    callback(err)\n" ..
+    "  end\n" ..
+    "  local function check()\n" ..
+    "    if done then return end\n" ..
+    "    left = left - 1\n" ..
+    "    if left == 0 then\n" ..
+    "      done = true\n" ..
+    "      callback(nil, Table.concat(parts))\n" ..
+    "    end\n" ..
+    "  end\n" ..
+    "  local function fn()\n    "
   local program_tail = 
-      "}}).call(L);" ..
-      "}catch(e){return c(e)}" ..
-      "var d;$c()" ..
-      "function $e(e){if(d)return;d=!d;c(e)}" ..
-      "function $c(){if(d)return;while($p.hasOwnProperty(i)){i--}if(i<0){d=!d;c(null,$p.join(''))}}" ..
-    "}"
-  local simple_tail =
-    "}}).call(L);" ..
-    "}catch(e){return c(e)}" ..
-    "c(null,$p.join(''))"
+    "  end\n"..
+    "  setfenv(fn, locals)\n"..
+    "  fn()\n" ..
+    "  if left == 0 then\n"..
+    "    done = true\n" ..
+    "    callback(nil, Table.concat(parts))\n" ..
+    "  end\n" ..
+    "end\n"
   local generated = {}
   for i, token in ipairs(tokens) do
     if token.simple then
@@ -149,16 +156,16 @@ function Kernel.generator(tokens)
           Table.insert(parts, "(" .. part.name .. ")")
         end
       end
-      Table.insert(generated, "$p[" .. i .. "]=" .. Table.concat(parts, '..'))
+      Table.insert(generated, "parts[" .. i .. "]=" .. Table.concat(parts, '..'))
     elseif token.contents or token.args then
       local args = (token.args and #token.args) and (token.args .. ",") or ""
       if token.contents then args = args .. Kernel.generator(token.contents) .. "," end
-      Table.insert(generated, token.name .. "(" .. args .. "function(e,r) if e then return $e(e) end $p[" .. i .. "]=r;$c()end)")
+      Table.insert(generated, token.name .. "(" .. args .. "function(err, result) if err then return error(err) end parts[" .. i .. "]=result;check() end)")
     else
       error("This shouldn't happen!")
     end
   end
-  return program_head .. Table.concat(generated, "\n") .. (left > 0 and program_tail or simple_tail);
+  return program_head .. Table.concat(generated, "\n") .. program_tail;
 end
 
 function Kernel.parser(tokens, source, filename)
@@ -231,7 +238,7 @@ function Kernel.tokenizer(source)
     local min = Math.huge
     local kind
     for name, pattern in pairs(patterns) do
-      local m = {String.find(source, pattern, position)}
+      local m = {source:find(pattern, position)}
       if m[1] and m[1] < min then
         min = m[1]
         match = m

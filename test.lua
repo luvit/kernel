@@ -1,12 +1,13 @@
 local Kernel = require('./kernel')
 local Timer = require('timer')
 local UV = require('uv')
-Kernel.cacheLifetime = 0 -- disable cache
+Kernel.cache_lifetime = 0 -- disable cache
 
 Kernel.compile("simple.html", function (err, template)
   if err then error(err) end
   p("template", template)
   template({
+    planet = "earth",
     foo = function (callback)
       Timer.set_timeout(10, function ()
         callback(nil, UV.hrtime())
