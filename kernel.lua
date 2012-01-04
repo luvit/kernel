@@ -9,8 +9,10 @@ local Timer = require('timer')
 local Table = require('table')
 local Math = require('math')
 
+-- Override these in your app
 local Kernel = {
   cache_lifetime = 1000,
+  helpers = {},
 };
 
 
@@ -23,7 +25,12 @@ local function compile(filename, callback)
     -- p("tokens", tokens)
     tokens = Kernel.parser(tokens, source, filename)
     -- p("parsed", tokens)
-    local code = "local Table = require('table')\nreturn " .. Kernel.generator(tokens)
+    local code = [[
+local this = require(']] .. __filename .. [[').helpers
+local Table = require('table')
+this.Table = Table
+setmetatable(this,{__index=_G})
+return ]] .. Kernel.generator(tokens)
     -- p("code")
     -- print(code)
     local chunk, err = loadstring(code, filename .. ".lua")
@@ -143,7 +150,8 @@ function Kernel.generator(tokens)
   local program_head = [[
 function(locals, callback)
   local parent = this
-  local this = setmetatable(locals, {__index=parent or getfenv(0)})
+  -- p("parent", parent, getmetatable(parent))
+  local this = setmetatable(locals, {__index=parent})
   local parts = {}
   local left = ]] .. (left + 1) .. "\n" .. [[
   local done]] .. "\n" .. (left > 0 and [[
