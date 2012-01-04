@@ -26,9 +26,8 @@ local function compile(filename, callback)
     tokens = Kernel.parser(tokens, source, filename)
     -- p("parsed", tokens)
     local code = [[
-local this = require(']] .. __filename .. [[').helpers
 local Table = require('table')
-this.Table = Table
+local this = require(']] .. __filename .. [[').helpers
 setmetatable(this,{__index=_G})
 return ]] .. Kernel.generator(tokens)
     -- p("code")
@@ -137,7 +136,7 @@ function Kernel.generator(tokens)
 
   -- Shortcut for static sections
   if #tokens == 1 and tokens[1].simple and #tokens[1] == 1 and type(tokens[1][1]) == "string" then
-    return "function(L, c) c(nil," .. string_escape(tokens[1][1]) .. ") end"
+    return "function(locals, callback)\n  callback(nil, " .. string_escape(tokens[1][1]) .. ")\nend"
   end
   
   -- Reduce counters for simple tokens
@@ -150,8 +149,9 @@ function Kernel.generator(tokens)
   local program_head = [[
 function(locals, callback)
   local parent = this
-  -- p("parent", parent, getmetatable(parent))
-  local this = setmetatable(locals, {__index=parent})
+  local this = setmetatable({}, {__index = function (table, key)
+    return locals[key] or parent[key]
+  end})
   local parts = {}
   local left = ]] .. (left + 1) .. "\n" .. [[
   local done]] .. "\n" .. (left > 0 and [[

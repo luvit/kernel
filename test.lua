@@ -45,10 +45,13 @@ Kernel.helpers = {
   end
 }
 
+local site = {
+  name = "Tim Caswell"
+}
+
 Kernel.compile("tasks.html", function (err, template)
   if err then p("error",err); return end
   local data = {
-    name = "Tim Caswell",
     tasks = {
       {task = "Program Awesome Code"},
       {task = "Play with Kids"},
@@ -56,6 +59,7 @@ Kernel.compile("tasks.html", function (err, template)
       {task = "Write Blog Post"},
     }
   }
+  setmetatable(data, {__index=site})
   template(data, function (err, result)
     if err then p("ERROR", err); return end
     p("result")
