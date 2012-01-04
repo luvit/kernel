@@ -142,6 +142,8 @@ function Kernel.generator(tokens)
   
   local program_head = [[
 function(locals, callback)
+  local parent = this
+  local this = setmetatable(locals, {__index=parent or getfenv(0)})
   local parts = {}
   local left = ]] .. (left + 1) .. "\n" .. [[
   local done]] .. "\n" .. (left > 0 and [[
@@ -162,7 +164,7 @@ function(locals, callback)
 ]]
   local program_tail = [[
   end
-  setfenv(fn, locals)
+  setfenv(fn, this)
   fn()
   left = left - 1
   if left == 0 and not done then
