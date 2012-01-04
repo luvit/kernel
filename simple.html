@@ -1,1 +1,5 @@
 This {foo()} {bar} is {uknown} text {#section}with content{/section} and {#conditional(true)} bar = {bar}{/conditional} more content.
+Not just \good {\#values} such as {foo} should imho {still\} be interpolated. {nil}
+Another case is strings in evaluators, e.g. {{nil or 'single quoted default'}} or {{nil or "doublw quoted default"}}
+Plus, while Kernel is not limited to generate HTML, some HTML entities are better be escaped by default...
+E.g. {{'<script>alert(\'1\')</script>'}}
