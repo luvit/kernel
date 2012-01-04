@@ -13,6 +13,7 @@ local tests = {
   [".{test.with}."] = { ".", { stop = 12, start = 2, name = "test.with" }, "." },
   [".{test.with.more}."] = { ".", { stop = 17, start = 2, name = "test.with.more" }, "." },
   [".{{this is arbitrary()}}."] = { ".", { stop = 24, start = 2, name = "this is arbitrary()" }, "." },
+  [".{{please, consider {\\#passing}} \\{escaping\\} {\\/intact}}}."] = { ".", { stop = ???, start = 2, name = "please, consider passing \\{escaping\\} intact" }, "." },
 }
 
 function deep_equal(expected, actual)
