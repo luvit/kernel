@@ -179,7 +179,7 @@ end
         if type(part) == "string" then
           Table.insert(parts, string_escape(part))
         else
-          Table.insert(parts, "(" .. part.name .. ")")
+          Table.insert(parts, "(" .. part.name .. " or '{" .. part.name .. "}')")
         end
       end
       Table.insert(generated, "parts[" .. i .. "]=" .. Table.concat(parts, '..'))
