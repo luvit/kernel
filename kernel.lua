@@ -38,7 +38,7 @@ return ]] .. Kernel.generator(tokens)
       return callback(err)
     end
     local real = chunk()
-    callback(null, function (locals, callback)
+    callback(nil, function (locals, callback)
       local success, err = pcall(function ()
         real(locals, callback)
       end)
