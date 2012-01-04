@@ -64,7 +64,7 @@ function Kernel.compile(filename, callback)
   
   -- Check if there is still a batch in progress and join it.
   if templateBatch[filename] then
-    templateBatch[filename].push(callback)
+    Table.insert(templateBatch[filename], callback)
     return
   end
 

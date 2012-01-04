@@ -1,6 +1,5 @@
 <h1>Tasks for {name}</h1>
 <ul>
-  {#LOOP(tasks)}
-    <li>{task} ({index}/{{#tasks}})</li>
-  {/LOOP}
-</ul>
+{#LOOP(tasks)}  <li>{task} ({index}/{{#tasks}})</li>
+{/LOOP}</ul>
+{PARTIAL("footer.html", this)}

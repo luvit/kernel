@@ -16,7 +16,7 @@ Kernel.helpers = {
     else callback(nil, "") end
   end,
   LOOP = function (array, block, callback)
-    local left = 0
+    local left = 1
     local parts = {}
     local done
     for i, value in ipairs(array) do
@@ -37,6 +37,11 @@ Kernel.helpers = {
         end
       end)
     end
+    left = left - 1
+    if left == 0 and not done then
+      done = true
+      callback(null, Table.concat(parts))
+    end
   end
 }
 
@@ -52,7 +57,9 @@ Kernel.compile("tasks.html", function (err, template)
     }
   }
   template(data, function (err, result)
-    p(err, result)
+    if err then p("ERROR", err); return end
+    p("result")
+    print(result)
   end)
 end)
 
