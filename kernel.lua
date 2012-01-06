@@ -13,8 +13,11 @@ local Math = require('math')
 local Kernel = {
   cache_lifetime = 1000,
   helpers = {
-    -- Override this in your framework to do things like stringify invalid values
-    X = function (value)
+    -- Override this in your framework for custom behavior
+    X = function (value, name, filename, offset)
+      if not(type(value) == "string" or type(value) == "number") then
+        error("{{" .. name .. "}} can't be a " .. type(value) .. " in " .. filename .. "(char " .. offset .. ")")
+      end
       return value
     end
   },
@@ -34,7 +37,7 @@ local function compile(filename, callback)
 local Table = require('table')
 local this = require(']] .. __filename .. [[').helpers
 setmetatable(this,{__index=_G})
-return ]] .. Kernel.generator(tokens)
+return ]] .. Kernel.generator(tokens, filename)
     -- p("code")
     -- print(code)
     local chunk, err = loadstring(code, filename .. ".lua")
@@ -135,7 +138,7 @@ local function string_escape(string)
   return "[" .. r .. "[" .. string .. "]" .. r .. "]"
 end
 
-function Kernel.generator(tokens)
+function Kernel.generator(tokens, filename)
   local length = #tokens
   local left = length
 
@@ -194,13 +197,13 @@ end
         if type(part) == "string" then
           Table.insert(parts, string_escape(part))
         else
-          Table.insert(parts, "X(" .. part.name .. ")")
+          Table.insert(parts, "X(" .. part.name .. "," .. string_escape(part.name) .. "," .. string_escape(filename) .. "," .. part.start .. ")")
         end
       end
       Table.insert(generated, "parts[" .. i .. "]=" .. Table.concat(parts, '..'))
     elseif token.contents or token.args then
       local args = (token.args and #token.args > 0) and (token.args .. ",") or ""
-      if token.contents then args = args .. Kernel.generator(token.contents) .. "," end
+      if token.contents then args = args .. Kernel.generator(token.contents, filename) .. "," end
       Table.insert(generated, token.name .. "(" .. args .. "function(err, result)\n  if err then return error(err) end\n  parts[" .. i .. "]=result\n  check()\nend)")
     else
       error("This shouldn't happen!")
