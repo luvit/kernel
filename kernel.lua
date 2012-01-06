@@ -12,7 +12,12 @@ local Math = require('math')
 -- Override these in your app
 local Kernel = {
   cache_lifetime = 1000,
-  helpers = {},
+  helpers = {
+    -- Override this in your framework to do things like stringify invalid values
+    X = function (value)
+      return value
+    end
+  },
 };
 
 
@@ -189,7 +194,7 @@ end
         if type(part) == "string" then
           Table.insert(parts, string_escape(part))
         else
-          Table.insert(parts, "(" .. part.name .. ")")
+          Table.insert(parts, "X(" .. part.name .. ")")
         end
       end
       Table.insert(generated, "parts[" .. i .. "]=" .. Table.concat(parts, '..'))
