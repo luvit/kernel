@@ -26,7 +26,7 @@ local Kernel = {
 
 -- Load a file from disk and compile into executable template
 local function compile(filename, callback)
-  FS.read_file(filename, function (err, source)
+  FS.readFile(filename, function (err, source)
     if err then return callback(err) end
     local template;
     local tokens = Kernel.tokenizer(source)
@@ -84,7 +84,7 @@ function Kernel.compile(filename, callback)
     if not err and Kernel.cache_lifetime > 0 then
       templateCache[filename] = template
       -- Make sure cached values expire eventually.
-      Timer.set_timeout(Kernel.cache_lifetime, function ()
+      Timer.setTimeout(Kernel.cache_lifetime, function ()
         templateCache[filename] = nil
       end)
     end
